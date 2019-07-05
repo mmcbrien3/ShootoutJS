@@ -1,7 +1,7 @@
 import * as Message from './message.js';
 import * as ForeignObject from './foreignObject.js';
 
-const url = 'ws://localhost:8080'
+const url = 'wss://localhost:8080'
 const connection = new WebSocket(url)
 
 var myClientId;
