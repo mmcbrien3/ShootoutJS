@@ -11,6 +11,7 @@ var allWs = [];
 setInterval(sendUpdatesToPlayers, 1000/240);
 
 wss.on('connection', (ws) => {
+  console.log("new connection");
   allWs.push(ws);
   ws.on('message', (message) => {
     console.log(message);
@@ -50,16 +51,16 @@ function makeUuid() {
   });
 }
 
-  function sendUpdatesToPlayers() {
-    for(let w = 0; w < allWs.length; w++) {
-        for (let key in foreignObjects) {
-          if (clientUuids[w] !== foreignObjects[key].clientId) {
-            let sendableMessage = Message.Message.createJsonFromForeignObject(foreignObjects[key]);
-            allWs[w].send(sendableMessage); 
-          }
+function sendUpdatesToPlayers() {
+  for(let w = 0; w < allWs.length; w++) {
+      for (let key in foreignObjects) {
+        if (clientUuids[w] !== foreignObjects[key].clientId) {
+          let sendableMessage = Message.Message.createJsonFromForeignObject(foreignObjects[key]);
+          allWs[w].send(sendableMessage); 
         }
       }
     }
+  }
 
 
 

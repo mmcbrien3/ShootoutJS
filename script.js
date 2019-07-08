@@ -1,15 +1,13 @@
 import * as Message from './message.js';
 import * as ForeignObject from './foreignObject.js';
 
-const url = 'wss://localhost:8080'
+const url = 'ws://localhost:8080'
 const connection = new WebSocket(url)
 
 var myClientId;
 
 var foreignObjects = {};
 var foreignObjectGroup;
-
-
 
 var config = {
     type: Phaser.AUTO,
@@ -28,12 +26,13 @@ var config = {
     }
 };
 
-
 var player;
+var playerLight;
 var playerIdForForeigners = makeUuid();
-var stars;
+var bullets;
 var platforms;
 var cursors;
+var spacebar;
 var score = 0;
 var gameOver = false;
 var scoreText;
@@ -60,6 +59,9 @@ function handleReceivedForeignObject(parsedMessage) {
 	}
 	if (! (foreignObjects.hasOwnProperty(curId))) {
 		foreignObjects[curId] = foreignObjectGroup.create(curObject.pos.x, curObject.pos.y, curObject.foreignObjectType);
+        if (curObject.foreignObjectType === ForeignObject.ForeignObjectTypes.FOREIGN_PLAYER) {
+            foreignObjects[curId].setPipeline('Light2D');
+        }
 	} else {
 		foreignObjects[curId].x = curObject.pos.x
 		foreignObjects[curId].y = curObject.pos.y;
@@ -84,95 +86,59 @@ function handleHandshakeReply(parsedMessage) {
 	console.log("My uuid is " + myClientId);
 }
 
-
-
-
 function preload ()
 {
-    this.load.image('sky', 'assets/sky.png');
+    this.load.image('sky', ['assets/sky.png', 'assets/sky-n.png']);
     this.load.image('ground', 'assets/platform.png');
     this.load.image('star', 'assets/star.png');
-    this.load.spritesheet('dude', 'assets/test_player.png', { frameWidth: 32, frameHeight: 48 });
+    this.load.image('dude', ['assets/test_player.png', 'assets/test_player-n.png'], { frameWidth: 32, frameHeight: 48 });
+
 }
 
 function create ()
 {
-    //  A simple background for our game
-    this.add.image(400, 200, 'sky');
+    this.add.image(400, 200, 'sky').setPipeline('Light2D');;
 
-    //  The platforms group contains the ground and the 2 ledges we can jump on
-    platforms = this.physics.add.staticGroup();
+
     foreignObjectGroup = this.physics.add.group();
-    //  Here we create the ground.
-    //  Scale it to fit the width of the game (the original sprite is 400x32 in size)
-    /*platforms.create(400, 568, 'ground').setScale(2).refreshBody();
-
-    //  Now let's create some ledges
-    platforms.create(600, 400, 'ground');
-    platforms.create(50, 250, 'ground');
-    platforms.create(750, 220, 'ground');*/
 
     // The player and its settings
-    player = this.physics.add.sprite(100, 450, 'dude');
+    player = this.physics.add
+        .sprite(100, 450, 'dude')
+        .setPipeline('Light2D');
+
+    playerLight = this.lights.addLight(200, 200, 200).setIntensity(0.5);
+    this.lights.enable().setAmbientColor(0x111111);
 
     //  Player physics properties. Give the little guy a slight bounce.
     player.setMass(100);
     player.setDrag(800, 800);
     player.setCollideWorldBounds(true);
 
-    //  Our player animations, turning, walking left and walking right.
-    /*this.anims.create({
-        key: 'left',
-        frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 3 }),
-        frameRate: 10,
-        repeat: -1
-    });
-
-    this.anims.create({
-        key: 'turn',
-        frames: [ { key: 'dude', frame: 4 } ],
-        frameRate: 20
-    });
-
-    this.anims.create({
-        key: 'right',
-        frames: this.anims.generateFrameNumbers('dude', { start: 5, end: 8 }),
-        frameRate: 10,
-        repeat: -1
-    });*/
-
     //  Input Events
+    let spaceKey = [Phaser.SPACEBAR]
     cursors = this.input.keyboard.createCursorKeys();
+    spacebar = this.input.keyboard.addKeys(spaceKey)
 
-    //  Some stars to collect, 12 in total, evenly spaced 70 pixels apart along the x axis
-    stars = this.physics.add.group({
-        key: 'star',
-        repeat: 11,
-        setXY: { x: 12, y: 0, stepX: 70 }
-    });
-
-    stars.children.iterate(function (child) {
-
-        //  Give each star a slightly different bounce
-        child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
-
-    });
-
-
-    //  The score
     scoreText = this.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#000' });
 
-    //  Collide the player and the stars with the platforms
-    this.physics.add.collider(player, platforms);
-    this.physics.add.collider(stars, platforms);
+    // Create the group using the group factory
+    bullets = this.physics.add.group();
 
-    //  Checks to see if the player overlaps with any of the stars, if he does call the collectStar function
-    this.physics.add.overlap(player, stars, collectStar, null, this);
+    bullets.createMultiple(10, 'star');
+ 
+    bullets.call('events.onOutOfBounds.add', 'events.onOutOfBounds', resetBullet);
+    // Same as above, set the anchor of every sprite to 0.5, 1.0
+    bullets.call('anchor.setTo', 'anchor', 0.5, 1.0);
+ 
+    // This will set 'checkWorldBounds' to true on all sprites in the group
+    bullets.set('checkWorldBounds', true);
 
 }
 
 function update ()
 {
+
     if (gameOver)
     {
         return;
@@ -180,23 +146,19 @@ function update ()
 
     if (cursors.left.isDown)
     {
+        console.log(player.x);
+    console.log(player.y);
         player.setVelocityX(-330);
 
-        //player.anims.play('left', true);
 
     }
     else if (cursors.right.isDown)
     {
+        console.log(player.x);
+    console.log(player.y);
         player.setVelocityX(330);
 
-        //player.anims.play('right', true);
 
-    }
-    else
-    {
-        //player.setVelocityX(0);
-
-        //player.anims.play('turn');
     }
 
     if (cursors.up.isDown)
@@ -206,13 +168,50 @@ function update ()
     else if (cursors.down.isDown) {
         player.setVelocityY(330);
     }
+
+    for (var index in phaserKeys) {
+        var key = phaserKeys[index];
+        if (key.justDown) {
+            fireBullet();
+        }
+    }
+    updatePlayerLight()
     rotatePlayer();
     sendStateUpdate();
-    setForeignObjectPositions();
 }
 
-function setForeignObjectPositions() {
+function resetBullet(bullet) {
+    // Destroy the laser
+    bullet.kill();
+}
 
+function fireBullet() {
+    var bullet = lasers.getFirstExists(false);
+    if (bullet) {
+        let bulletVelocity = 500;
+        // If we have a laser, set it to the starting position
+        bullet.reset(player.x, player.y);
+        // Give it a velocity of -500 so it starts shooting
+
+        let bulletXVelocity = Math.cos(player.angle * Math.PI * 2 / 360) * bulletVelocity
+        let bulletYVelocity = Math.sin(player.angle * Math.PI * 2 / 360) * bulletVelocity
+        bullet.body.velocity.y = bulletYVelocity;
+        bullet.body.velocity.x = bulletXVelocity;
+    }
+}
+
+function updatePlayerLight(){
+    playerLight.x = player.x;
+    playerLight.y = player.y;
+
+    let curIntensity = playerLight.intensity
+    let maxIntensity = 1;
+    let minIntensity = 0;
+    let change = Math.random() * .2 - .1;
+    let newIntensity = curIntensity + change;
+    newIntensity = newIntensity > maxIntensity ? maxIntensity : newIntensity;
+    newIntensity = newIntensity < minIntensity ? minIntensity : newIntensity;
+    playerLight.setIntensity(newIntensity)
 }
 
 function sendStateUpdate() {
@@ -248,26 +247,4 @@ function getAngleBetweenPositionsRadians(positionOne, positionTwo) {
 	adjacent = adjacent === 0 ? epsilon : adjacent;
 	let sign = adjacent < 0 ? Math.PI : 0;
 	return sign + Math.atan(opposite/adjacent);
-}
-
-function collectStar (player, star)
-{
-    star.disableBody(true, true);
-
-    //  Add and update the score
-    score += 10;
-    scoreText.setText('Score: ' + score);
-
-    if (stars.countActive(true) === 0)
-    {
-        //  A new batch of stars to collect
-        stars.children.iterate(function (child) {
-
-            child.enableBody(true, child.x, 0, true, true);
-
-        });
-
-        var x = (player.x < 400) ? Phaser.Math.Between(400, 800) : Phaser.Math.Between(0, 400);
-
-    }
 }
