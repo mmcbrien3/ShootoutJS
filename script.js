@@ -9,10 +9,13 @@ var myClientId;
 var foreignObjects = {};
 var foreignObjectGroup;
 
+var totalWidth = 1024
+var totalHeight = 1024
+var cameraSize = {width: 512, height: 512}
 var config = {
     type: Phaser.AUTO,
-    width: 800,
-    height: 400,
+    width: cameraSize.width,
+    height: cameraSize.height,
     physics: {
         default: 'arcade',
         arcade: {
@@ -25,8 +28,9 @@ var config = {
         update: update
     }
 };
-
+var lastFired = 0;
 var player;
+var camera
 var playerLight;
 var playerIdForForeigners = makeUuid();
 var bullets;
@@ -97,46 +101,56 @@ function preload ()
 
 function create ()
 {
-    this.add.image(400, 200, 'sky').setPipeline('Light2D');;
-
+    this.add.image(512, 512, 'sky').setPipeline('Light2D');;
+    this.physics.world.setBounds(0, 0, totalWidth, totalHeight)
 
     foreignObjectGroup = this.physics.add.group();
 
     // The player and its settings
     player = this.physics.add
-        .sprite(100, 450, 'dude')
-        .setPipeline('Light2D');
+        .sprite(0, 0, 'dude')
+        .setPipeline('Light2D')
+        .setAlpha(1);
+    this.cameras.main.setViewport(player.x, player.y, cameraSize.width, cameraSize.height)
+    this.cameras.main.startFollow(player)
 
-    playerLight = this.lights.addLight(200, 200, 200).setIntensity(0.5);
-    this.lights.enable().setAmbientColor(0x111111);
+
+    this.lights.enable().setAmbientColor(0x000000);
+    playerLight = this.lights.addLight(0, 0, 200).setIntensity(1);
+    let randomLight = this.lights.addLight(500, 500, 200).setIntensity(1)
+
 
     //  Player physics properties. Give the little guy a slight bounce.
     player.setMass(100);
     player.setDrag(800, 800);
     player.setCollideWorldBounds(true);
 
+   
+
     //  Input Events
-    let spaceKey = [Phaser.SPACEBAR]
-    cursors = this.input.keyboard.createCursorKeys();
-    spacebar = this.input.keyboard.addKeys(spaceKey)
+   cursors = this.input.keyboard.addKeys(
+    	{up:Phaser.Input.Keyboard.KeyCodes.W,
+		down:Phaser.Input.Keyboard.KeyCodes.S,
+		left:Phaser.Input.Keyboard.KeyCodes.A,
+		right:Phaser.Input.Keyboard.KeyCodes.D});
 
     scoreText = this.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#000' });
 
     // Create the group using the group factory
-    bullets = this.physics.add.group();
-
-    bullets.createMultiple(10, 'star');
- 
-    bullets.call('events.onOutOfBounds.add', 'events.onOutOfBounds', resetBullet);
+    this.bullets = this.physics.add.group({
+            defaultKey: 'star',
+            maxSize: 10
+        });
+    //bullets.Call('events.onOutOfBounds.add', 'events.onOutOfBounds', resetBullet);
     // Same as above, set the anchor of every sprite to 0.5, 1.0
-    bullets.call('anchor.setTo', 'anchor', 0.5, 1.0);
+    //bullets.Call('anchor.setTo', 'anchor', 0.5, 1.0);
  
     // This will set 'checkWorldBounds' to true on all sprites in the group
-    bullets.set('checkWorldBounds', true);
+    //bullets.Set('checkWorldBounds', true);
 
 }
 
-function update ()
+function update (time, delta)
 {
 
     if (gameOver)
@@ -164,18 +178,32 @@ function update ()
     if (cursors.up.isDown)
     {
         player.setVelocityY(-330);
+
     }
     else if (cursors.down.isDown) {
         player.setVelocityY(330);
     }
 
-    for (var index in phaserKeys) {
-        var key = phaserKeys[index];
-        if (key.justDown) {
-            fireBullet();
+    for (var index in spacebar) {
+        var key = spacebar[index];
+        if (Phaser.Input.Keyboard.JustDown(key)) {
+            
         }
     }
+    if (this.input.activePointer.isDown)
+    {
+        fireBullet(this.bullets, this.input.activePointer.x, this.input.activePointer.y, this.physics, time);
+    }
+    this.bullets.children.each(function(b) {
+            if (b.active) {
+                if (b.y < -50 || b.y > totalHeight + 50 || b.x < -50 || b.x > totalWidth + 50) {
+                    b.setActive(false);
+                }
+            }
+        }.bind(this));
+
     updatePlayerLight()
+    //updateCamera()
     rotatePlayer();
     sendStateUpdate();
 }
@@ -185,33 +213,46 @@ function resetBullet(bullet) {
     bullet.kill();
 }
 
-function fireBullet() {
-    var bullet = lasers.getFirstExists(false);
-    if (bullet) {
-        let bulletVelocity = 500;
-        // If we have a laser, set it to the starting position
-        bullet.reset(player.x, player.y);
-        // Give it a velocity of -500 so it starts shooting
+function updateCamera() {
+	camera.setPosition(player.x, player.y)
+}
 
-        let bulletXVelocity = Math.cos(player.angle * Math.PI * 2 / 360) * bulletVelocity
-        let bulletYVelocity = Math.sin(player.angle * Math.PI * 2 / 360) * bulletVelocity
-        bullet.body.velocity.y = bulletYVelocity;
-        bullet.body.velocity.x = bulletXVelocity;
-    }
+function fireBullet(bullets, pointerX, pointerY, physics, time) {
+	var bullet = bullets.get(player.x, player.y);
+        if (bullet && time > lastFired + 50) {
+        	let bulletVelocity = 300;
+        	physics.moveTo(bullet, pointerX, pointerY, 300);
+        	lastFired = time
+        }
 }
 
 function updatePlayerLight(){
-    playerLight.x = player.x;
-    playerLight.y = player.y;
+    playerLight.setPosition(player.x, player.y);
 
-    let curIntensity = playerLight.intensity
+    let maxRadius = 400;
+    let minRadius = 150;
+    let curRadius = playerLight.radius;
+    let change = 0;
+    let multiplier = 100;
+    if (player.body.speed != 0) {
+    	change = -player.body.speed / multiplier;
+    } else {
+    	change = 1;
+    }
+
+    let newRadius = curRadius + change;
+    newRadius = newRadius > maxRadius ? maxRadius : newRadius;
+    newRadius = newRadius < minRadius ? minRadius : newRadius;
+    playerLight.setRadius(newRadius)
+
+    /*let curIntensity = playerLight.intensity
     let maxIntensity = 1;
-    let minIntensity = 0;
+    let minIntensity = .5;
     let change = Math.random() * .2 - .1;
     let newIntensity = curIntensity + change;
     newIntensity = newIntensity > maxIntensity ? maxIntensity : newIntensity;
     newIntensity = newIntensity < minIntensity ? minIntensity : newIntensity;
-    playerLight.setIntensity(newIntensity)
+    playerLight.setIntensity(newIntensity)*/
 }
 
 function sendStateUpdate() {
